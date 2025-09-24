@@ -1,0 +1,5 @@
+{
+  "name": "AI Presentation Designer",
+  "description": "An AI-powered application that generates beautiful, professional, and editable presentation slides from a single topic. It creates unique backgrounds, creative layouts, and provides downloadable slides.",
+  "requestFramePermissions": []
+}
