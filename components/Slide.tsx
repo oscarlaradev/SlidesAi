@@ -24,6 +24,24 @@ export const Slide: React.FC<SlideProps> = ({ slideData, backgroundImage, onText
     >
       <div className="absolute inset-0 bg-black bg-opacity-30"></div>
       <div className={`relative w-full h-full p-8 md:p-12 lg:p-16`}>
+        {slideData.imageElements && slideData.imageElements.map(element => (
+            <div
+                key={element.id}
+                className="absolute"
+                style={{
+                    left: `${element.x}%`,
+                    top: `${element.y}%`,
+                    width: `${element.w}%`,
+                    height: `${element.h}%`,
+                }}
+            >
+                <img
+                    src={`data:image/jpeg;base64,${element.base64}`}
+                    alt="AI generated image for slide content"
+                    className="w-full h-full object-cover rounded-lg shadow-md"
+                />
+            </div>
+        ))}
         {slideData.textElements.map((element) => (
           <div
             key={element.id}

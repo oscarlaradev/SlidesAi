@@ -100,7 +100,21 @@ export const createPptx = async (slidesData: SlideData[], backgroundImage: strin
                 x: 0, y: 0, w:'100%', h:'100%',
                 fill: { color: '000000', transparency: 70 }
             });
+            
+            // Add content images
+            if (slideData.imageElements) {
+                for (const element of slideData.imageElements) {
+                    slide.addImage({
+                        data: `data:image/jpeg;base64,${element.base64}`,
+                        x: `${element.x}%`,
+                        y: `${element.y}%`,
+                        w: `${element.w}%`,
+                        h: `${element.h}%`,
+                    });
+                }
+            }
 
+            // Add text elements
             for (const element of slideData.textElements) {
                 const styling = parseStyling(element.tailwindClasses);
                 
@@ -111,6 +125,11 @@ export const createPptx = async (slidesData: SlideData[], backgroundImage: strin
                     h: `${element.h}%`,
                     ...styling,
                 });
+            }
+
+            // Add speaker notes if they exist
+            if (slideData.speakerNotes) {
+                slide.addNotes(slideData.speakerNotes);
             }
         }
 

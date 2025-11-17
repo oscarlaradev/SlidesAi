@@ -192,6 +192,15 @@ const App: React.FC = () => {
         setSuggestion(null); // Clear suggestion if user edits manually
     }
   }, [selectedElementId]);
+  
+  const handleNotesChange = (newNotes: string) => {
+    setSlides(currentSlides => {
+        if (!currentSlides) return null;
+        return currentSlides.map((slide, index) =>
+            index === activeSlideIndex ? { ...slide, speakerNotes: newNotes } : slide
+        );
+    });
+  };
 
   const handleElementSelect = (id: string) => {
     setSelectedElementId(id);
@@ -274,32 +283,46 @@ const App: React.FC = () => {
                 </button>
                 <Slide slideData={activeSlideData} backgroundImage={backgroundImage} onTextChange={handleTextChange} slideIndex={activeSlideIndex} selectedElementId={selectedElementId} onElementSelect={handleElementSelect} />
             </div>
-            {/* AI Content Assistant */}
-            <div className="mt-4 p-4 bg-slate-800/60 border border-slate-700 rounded-md">
-                <div className="flex items-center gap-2 mb-2">
-                    <SparklesIcon className="w-5 h-5 text-cyan-400" />
-                    <h3 className="text-md font-semibold text-slate-300">AI Content Assistant</h3>
-                </div>
-                {!selectedElementId && <p className="text-sm text-slate-400">Click on a text box in the slide to get content suggestions.</p>}
-                {selectedTextElement && (
-                    <div>
-                        <div className="flex items-center gap-2 mb-3">
-                           <button onClick={() => handleRefineText('shorten')} disabled={isSuggesting} className="px-3 py-1 text-sm bg-slate-700 rounded-full hover:bg-slate-600 transition disabled:opacity-50">Shorten</button>
-                           <button onClick={() => handleRefineText('rephrase')} disabled={isSuggesting} className="px-3 py-1 text-sm bg-slate-700 rounded-full hover:bg-slate-600 transition disabled:opacity-50">Rephrase</button>
-                           <button onClick={() => handleRefineText('expand')} disabled={isSuggesting} className="px-3 py-1 text-sm bg-slate-700 rounded-full hover:bg-slate-600 transition disabled:opacity-50">Expand</button>
-                        </div>
-                         {isSuggesting && <div className="flex items-center gap-2 text-sm text-slate-400"><div className="w-4 h-4 border-2 border-dashed rounded-full animate-spin border-cyan-400"></div><span>Generating suggestion...</span></div>}
-                         {suggestion && (
-                            <div className="mt-2 p-3 bg-slate-900/50 border border-slate-600 rounded-md animate-fade-in">
-                                <p className="text-slate-200">{suggestion}</p>
-                                <div className="flex items-center gap-2 mt-3">
-                                    <button onClick={applySuggestion} className="px-3 py-1 text-sm bg-cyan-600 rounded-full hover:bg-cyan-500 transition">Apply</button>
-                                    <button onClick={() => setSuggestion(null)} className="px-3 py-1 text-sm bg-slate-600 rounded-full hover:bg-slate-500 transition">Discard</button>
-                                </div>
-                            </div>
-                         )}
+            
+            <div className="mt-4 space-y-4">
+                {/* AI Content Assistant */}
+                <div className="p-4 bg-slate-800/60 border border-slate-700 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                        <SparklesIcon className="w-5 h-5 text-cyan-400" />
+                        <h3 className="text-md font-semibold text-slate-300">AI Content Assistant</h3>
                     </div>
-                )}
+                    {!selectedElementId && <p className="text-sm text-slate-400">Click on a text box in the slide to get content suggestions.</p>}
+                    {selectedTextElement && (
+                        <div>
+                            <div className="flex items-center gap-2 mb-3">
+                               <button onClick={() => handleRefineText('shorten')} disabled={isSuggesting} className="px-3 py-1 text-sm bg-slate-700 rounded-full hover:bg-slate-600 transition disabled:opacity-50">Shorten</button>
+                               <button onClick={() => handleRefineText('rephrase')} disabled={isSuggesting} className="px-3 py-1 text-sm bg-slate-700 rounded-full hover:bg-slate-600 transition disabled:opacity-50">Rephrase</button>
+                               <button onClick={() => handleRefineText('expand')} disabled={isSuggesting} className="px-3 py-1 text-sm bg-slate-700 rounded-full hover:bg-slate-600 transition disabled:opacity-50">Expand</button>
+                            </div>
+                             {isSuggesting && <div className="flex items-center gap-2 text-sm text-slate-400"><div className="w-4 h-4 border-2 border-dashed rounded-full animate-spin border-cyan-400"></div><span>Generating suggestion...</span></div>}
+                             {suggestion && (
+                                <div className="mt-2 p-3 bg-slate-900/50 border border-slate-600 rounded-md animate-fade-in">
+                                    <p className="text-slate-200">{suggestion}</p>
+                                    <div className="flex items-center gap-2 mt-3">
+                                        <button onClick={applySuggestion} className="px-3 py-1 text-sm bg-cyan-600 rounded-full hover:bg-cyan-500 transition">Apply</button>
+                                        <button onClick={() => setSuggestion(null)} className="px-3 py-1 text-sm bg-slate-600 rounded-full hover:bg-slate-500 transition">Discard</button>
+                                    </div>
+                                </div>
+                             )}
+                        </div>
+                    )}
+                </div>
+                {/* Speaker Notes */}
+                <div className="p-4 bg-slate-800/60 border border-slate-700 rounded-lg">
+                    <h3 className="text-md font-semibold text-slate-300 mb-2">Speaker Notes</h3>
+                    <textarea
+                        value={activeSlideData.speakerNotes || ''}
+                        onChange={(e) => handleNotesChange(e.target.value)}
+                        placeholder="AI-generated speaker notes will appear here. You can edit them freely."
+                        className="w-full h-24 bg-slate-900/50 border border-slate-600 rounded-md p-2 text-sm text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all"
+                        aria-label="Speaker notes"
+                    />
+                </div>
             </div>
           </div>
           

@@ -8,9 +8,19 @@ export interface TextElement {
   tailwindClasses: string; // For styling (font size, color, weight, alignment)
 }
 
+export interface ImageElement {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  base64: string; // The base64 encoded image data
+}
+
 export interface SlideData {
   id: string; // Unique identifier for each slide
   slideType: 'title' | 'content';
   textElements: TextElement[];
+  imageElements?: ImageElement[]; // Optional array of images
   speakerNotes?: string;
 }

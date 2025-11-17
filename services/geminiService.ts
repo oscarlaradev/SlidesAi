@@ -1,11 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SlideData, TextElement } from '../types';
+import { SlideData, TextElement, ImageElement } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
 export type ThemeOption = 'dark' | 'light' | 'vibrant';
 
-const makeId = () => `slide_${Math.random().toString(36).substring(2, 11)}`;
+const makeId = () => `id_${Math.random().toString(36).substring(2, 11)}`;
 
 const themeImagePrompts: Record<ThemeOption, string> = {
     dark: "abstract, minimalist, and professional, with a dark and elegant aesthetic suitable for a corporate or creative presentation. Think subtle gradients, textures, and perhaps a single, non-distracting focal point. It should evoke a feeling of innovation and clarity.",
@@ -44,6 +44,24 @@ const generateBackgroundImage = async (prompt: string): Promise<string> => {
 
     if (!response.generatedImages || response.generatedImages.length === 0) {
         throw new Error("Image generation failed.");
+    }
+
+    return response.generatedImages[0].image.imageBytes;
+};
+
+const generateContentImage = async (prompt: string): Promise<string> => {
+    const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: prompt,
+        config: {
+            numberOfImages: 1,
+            outputMimeType: 'image/jpeg',
+            aspectRatio: '4:3', // Good aspect ratio for content images
+        },
+    });
+
+    if (!response.generatedImages || response.generatedImages.length === 0) {
+        throw new Error("Content image generation failed.");
     }
 
     return response.generatedImages[0].image.imageBytes;
@@ -90,33 +108,44 @@ const slideLayoutSchema = {
             type: Type.STRING,
             description: "Either 'title' or 'content'",
         },
+        speakerNotes: {
+            type: Type.STRING,
+            description: "Concise speaker notes (1-3 sentences) for the presenter, explaining key points in more detail. This text will NOT appear on the slide itself."
+        },
         textElements: {
             type: Type.ARRAY,
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    id: {
-                        type: Type.STRING,
-                        description: "A unique ID like 'title-1' or 'body-1'",
-                    },
-                    text: {
-                        type: Type.STRING,
-                        description: "Placeholder text relevant to the topic",
-                    },
+                    id: { type: Type.STRING, description: "A unique ID like 'title-1' or 'body-1'" },
+                    text: { type: Type.STRING, description: "Placeholder text relevant to the topic" },
                     x: { type: Type.NUMBER, description: 'Position from left edge as a percentage (e.g., 10 for 10%)' },
                     y: { type: Type.NUMBER, description: 'Position from top edge as a percentage (e.g., 20 for 20%)' },
                     w: { type: Type.NUMBER, description: 'Width of the text box as a percentage (e.g., 80 for 80%)' },
                     h: { type: Type.NUMBER, description: 'Height of the text box as a percentage (e.g., 15 for 15%)' },
-                    tailwindClasses: {
-                        type: Type.STRING,
-                        description: "A combination of Tailwind CSS classes for styling (typography, color). DO NOT include positioning classes (top, left, w-, h-). Examples: 'text-4xl font-bold text-white text-center', 'text-lg text-slate-200'",
-                    },
+                    tailwindClasses: { type: Type.STRING, description: "A combination of Tailwind CSS classes for styling (typography, color). DO NOT include positioning classes. Examples: 'text-4xl font-bold text-white text-center', 'text-lg text-slate-200'" },
                 },
-                    required: ['id', 'text', 'x', 'y', 'w', 'h', 'tailwindClasses'],
+                required: ['id', 'text', 'x', 'y', 'w', 'h', 'tailwindClasses'],
             },
         },
+        imageElements: {
+            type: Type.ARRAY,
+            description: "An optional array of images to include on the slide. Only add images to content slides where they enhance the message. Do not add images to title or conclusion slides.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    id: { type: Type.STRING, description: "A unique ID like 'image-1'" },
+                    imageGenerationPrompt: { type: Type.STRING, description: "A detailed, DALL-E style prompt to generate a photorealistic image relevant to the slide's content." },
+                    x: { type: Type.NUMBER, description: 'Position from left edge as a percentage (e.g., 10 for 10%)' },
+                    y: { type: Type.NUMBER, description: 'Position from top edge as a percentage (e.g., 20 for 20%)' },
+                    w: { type: Type.NUMBER, description: 'Width of the image as a percentage (e.g., 40 for 40%)' },
+                    h: { type: Type.NUMBER, description: 'Height of the image as a percentage (e.g., 50 for 50%)' },
+                },
+                required: ['id', 'imageGenerationPrompt', 'x', 'y', 'w', 'h'],
+            }
+        },
     },
-    required: ['slideType', 'textElements'],
+    required: ['slideType', 'textElements', 'speakerNotes'],
 };
 
 const generateAllSlidesFromOutline = async (topic: string, theme: ThemeOption, outline: string[]): Promise<SlideData[]> => {
@@ -127,17 +156,19 @@ const generateAllSlidesFromOutline = async (topic: string, theme: ThemeOption, o
 - ${outline.join('\n- ')}
 
 **Instructions:**
-1.  The first outline item should be a **Title Slide** for the presentation topic.
+1.  The first outline item should be a **Title Slide**. Title slides should NOT contain images.
 2.  For each subsequent point in the outline, create a corresponding **Content Slide** with a heading and informative body text.
-3.  The last item in the outline should be a **Concluding Slide** (e.g., "Thank You" or "Q&A").
-4.  ${themeInstruction}
+3.  **For content slides, if it enhances the message, include one single, relevant, photorealistic image.** Generate a detailed image generation prompt for it. The layout must accommodate both the text and the image gracefully.
+4.  The last item in the outline should be a **Concluding Slide** (e.g., "Thank You" or "Q&A"). Concluding slides should NOT contain images.
+5.  For each slide, generate concise **speakerNotes**.
+6.  ${themeInstruction}
 
 **Output Requirements:**
 - Provide your response as a single JSON object, which is an array of slide objects. Do not include markdown.
 - The number of slides in the array must exactly match the number of points in the outline.
 - Follow the schema for positioning (x, y, w, h as percentages) and styling (tailwindClasses for typography/color only).
 - **CRITICAL LAYOUT RULES**:
-    1.  **No Overlapping**: Bounding boxes MUST NOT overlap.
+    1.  **No Overlapping**: Bounding boxes of text and images MUST NOT overlap.
     2.  **Slide Boundaries**: All elements must be fully contained within the slide. Ensure a safe margin of at least 5% from all edges.
     3.  **Sufficient Padding**: Ensure ample empty space for a clean, professional look.
     4.  **Creative Layouts**: Use a variety of professional and visually appealing layouts across the slides. Do not make every slide look the same.`;
@@ -155,17 +186,40 @@ const generateAllSlidesFromOutline = async (topic: string, theme: ThemeOption, o
     });
 
     const jsonText = response.text.trim();
-    const slides: SlideData[] = JSON.parse(jsonText);
+    const slidesWithImagePrompts: any[] = JSON.parse(jsonText);
 
-    // Override slide types based on position, and assign unique IDs
+    const slidePromises = slidesWithImagePrompts.map(async (slide) => {
+        let finalImageElements: ImageElement[] = [];
+        if (slide.imageElements && slide.imageElements.length > 0) {
+            const imagePromises = slide.imageElements.map(async (imgEl: any) => {
+                const base64 = await generateContentImage(imgEl.imageGenerationPrompt);
+                return {
+                    id: imgEl.id,
+                    x: imgEl.x,
+                    y: imgEl.y,
+                    w: imgEl.w,
+                    h: imgEl.h,
+                    base64: base64,
+                };
+            });
+            finalImageElements = await Promise.all(imagePromises);
+        }
+        
+        const finalSlide: SlideData = {
+            id: makeId(),
+            slideType: 'content', // will be overridden
+            textElements: slide.textElements,
+            imageElements: finalImageElements,
+            speakerNotes: slide.speakerNotes,
+        };
+        return finalSlide;
+    });
+
+    const slides: SlideData[] = await Promise.all(slidePromises);
+
+    // Override slide types based on position
     if (slides.length > 0) {
         slides[0].slideType = 'title';
-        slides.forEach((slide, index) => {
-            slide.id = makeId();
-            if (index > 0) {
-                slide.slideType = 'content';
-            }
-        });
     }
 
     return slides;
@@ -179,6 +233,8 @@ export const generateSingleSlide = async (topic: string, slides: SlideData[], th
     const prompt = `You are an expert presentation designer. Generate a single new 'content' slide for a presentation on the topic: "${topic}".
 This new slide should logically follow the previous slide, which contained the following text: ${previousSlideContent}.
 Create new, relevant content. Don't just repeat information.
+Also generate concise speakerNotes for this new slide.
+Optionally, include one relevant photorealistic image if it enhances the content.
 ${themeInstruction}
 Provide your response as a single JSON object for one slide. Do not include markdown.
 Follow the schema for positioning (x, y, w, h as percentages) and styling (tailwindClasses for typography/color only).
@@ -195,54 +251,127 @@ Create a creative, professional, and uncluttered layout.`;
     });
 
     const jsonText = response.text.trim();
-    const newSlide: SlideData = JSON.parse(jsonText);
-    newSlide.id = makeId(); // Assign unique ID
-    newSlide.slideType = 'content';
+    const slideWithImagePrompts: any = JSON.parse(jsonText);
+    
+    let finalImageElements: ImageElement[] = [];
+    if (slideWithImagePrompts.imageElements && slideWithImagePrompts.imageElements.length > 0) {
+        const imagePromises = slideWithImagePrompts.imageElements.map(async (imgEl: any) => {
+            const base64 = await generateContentImage(imgEl.imageGenerationPrompt);
+            return {
+                id: imgEl.id,
+                x: imgEl.x,
+                y: imgEl.y,
+                w: imgEl.w,
+                h: imgEl.h,
+                base64: base64,
+            };
+        });
+        finalImageElements = await Promise.all(imagePromises);
+    }
+
+    const newSlide: SlideData = {
+        id: makeId(),
+        slideType: 'content',
+        textElements: slideWithImagePrompts.textElements,
+        imageElements: finalImageElements,
+        speakerNotes: slideWithImagePrompts.speakerNotes,
+    }
     return newSlide;
 }
 
 
 export const regenerateSlideLayout = async (topic: string, existingSlide: SlideData, theme: ThemeOption): Promise<SlideData> => {
     const existingTexts = existingSlide.textElements.map(({ id, text }) => ({ id, text }));
+    const existingImages = existingSlide.imageElements?.map(({ id }) => ({ id })) || [];
     const themeInstruction = themeLayoutPrompts[theme];
 
     const prompt = `You are an expert presentation designer. Your task is to **redesign the layout** for a single presentation slide on the topic: "${topic}".
 
-**Do NOT change the provided text content.** You must use the exact text provided for each element.
-Your goal is to generate new, creative, and professional values for position (x, y, w, h) and styling (tailwindClasses).
+**Do NOT change the provided text content or the images.** You must use the exact text provided and account for the number of images.
+Your goal is to generate new, creative, and professional values for position (x, y, w, h) for ALL elements and styling (tailwindClasses) for text elements.
 
 ${themeInstruction}
 
-Here is the text content you must use:
-${JSON.stringify(existingTexts)}
+Here is the content you must place in a new layout:
+- Text Elements: ${JSON.stringify(existingTexts)}
+- Image Placeholders: ${JSON.stringify(existingImages)}
 
 Provide your response as a single JSON object for one slide, following the schema. Do not include markdown formatting.
-- **CRITICAL LAYOUT RULES**: No overlapping, stay within slide boundaries with 5% margin, ensure sufficient padding.`;
+Omit fields like 'speakerNotes', 'imageGenerationPrompt', and 'text', as they should not be changed.
+- **CRITICAL LAYOUT RULES**: No overlapping, stay within slide boundaries with 5% margin, ensure sufficient padding. Create a visually balanced and professional composition.`;
+
+    const layoutOnlySchema = {
+        type: Type.OBJECT,
+        properties: {
+            slideType: { type: Type.STRING },
+            textElements: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        x: { type: Type.NUMBER },
+                        y: { type: Type.NUMBER },
+                        w: { type: Type.NUMBER },
+                        h: { type: Type.NUMBER },
+                        tailwindClasses: { type: Type.STRING },
+                    },
+                    required: ['id', 'x', 'y', 'w', 'h', 'tailwindClasses'],
+                }
+            },
+            imageElements: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        x: { type: Type.NUMBER },
+                        y: { type: Type.NUMBER },
+                        w: { type: Type.NUMBER },
+                        h: { type: Type.NUMBER },
+                    },
+                    required: ['id', 'x', 'y', 'w', 'h'],
+                }
+            }
+        },
+        required: ['slideType', 'textElements'],
+    };
 
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: slideLayoutSchema
+            responseSchema: layoutOnlySchema
         },
     });
 
     const jsonText = response.text.trim();
-    const newLayout: SlideData = JSON.parse(jsonText);
+    const newLayoutData = JSON.parse(jsonText);
 
-    // CRITICAL: Ensure the original text and IDs are preserved.
-    const originalTextsMap = new Map(existingSlide.textElements.map(el => [el.id, el.text]));
-    newLayout.textElements.forEach(el => {
-        if (originalTextsMap.has(el.id)) {
-            el.text = originalTextsMap.get(el.id)!;
-        }
-    });
+    // Reconstruct the slide, preserving all original content and only applying new layout values.
+    const regeneratedSlide: SlideData = {
+        ...existingSlide,
+        slideType: newLayoutData.slideType || existingSlide.slideType,
+        textElements: newLayoutData.textElements.map((newEl: any) => {
+            const originalEl = existingSlide.textElements.find(e => e.id === newEl.id);
+            return {
+                ...(originalEl as TextElement),
+                ...newEl,
+                text: originalEl?.text || '', // Ensure original text is kept
+            };
+        }),
+        imageElements: newLayoutData.imageElements?.map((newImgEl: any) => {
+            const originalImgEl = existingSlide.imageElements?.find(e => e.id === newImgEl.id);
+            return {
+                ...(originalImgEl as ImageElement),
+                ...newImgEl,
+                base64: originalImgEl?.base64 || '', // Ensure original image data is kept
+            };
+        }) || existingSlide.imageElements,
+    };
 
-    newLayout.id = existingSlide.id; // Preserve original slide ID
-    newLayout.slideType = existingSlide.slideType; // Preserve slide type
-
-    return newLayout;
+    return regeneratedSlide;
 };
 
 export type RefinementType = 'shorten' | 'rephrase' | 'expand';
