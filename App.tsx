@@ -1,9 +1,45 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { SlideData } from './types';
-import { generatePresentation, generateSingleSlide, regenerateSlideLayout, refineText, RefinementType, ThemeOption } from './services/geminiService';
+import { generatePresentation, generatePresentationOutline, generateSingleSlide, regenerateSlideLayout, refineText, RefinementType, ThemeOption } from './services/geminiService';
 import { Slide } from './components/Slide';
 import { createPptx } from './utils/pptxgenService';
 import { MagicIcon, DownloadIcon, PlusIcon, TrashIcon, RefreshCwIcon, RotateCcwIcon, SparklesIcon } from './components/icons';
+
+
+const OutlineReview: React.FC<{
+  outline: string[];
+  topic: string;
+  onRegenerate: () => void;
+  onCreate: () => void;
+  isRegenerating: boolean;
+}> = ({ outline, topic, onRegenerate, onCreate, isRegenerating }) => (
+  <div className="text-center max-w-2xl mx-auto animate-fade-in bg-slate-800/50 p-8 rounded-2xl border border-slate-700">
+    <SparklesIcon className="w-12 h-12 mx-auto text-cyan-400 mb-4" />
+    <h2 className="text-3xl font-bold text-white mb-2">Here's the Plan!</h2>
+    <p className="text-slate-300 mb-6">We've drafted an outline for your presentation on "{topic}".</p>
+    
+    <ul className="text-left space-y-3 bg-slate-900/50 p-6 rounded-lg border border-slate-600 mb-8">
+      {outline.map((item, index) => (
+        <li key={index} className="flex items-start">
+          <span className="bg-cyan-500 text-slate-900 font-bold rounded-full w-6 h-6 text-sm flex items-center justify-center mr-4 mt-1 flex-shrink-0">{index + 1}</span>
+          <span className="text-slate-200 text-lg">{item}</span>
+        </li>
+      ))}
+    </ul>
+
+    <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+      <button onClick={onRegenerate} disabled={isRegenerating} className="flex items-center justify-center gap-2 px-6 py-3 bg-slate-600 text-white font-bold rounded-full hover:bg-slate-500 focus:outline-none focus:ring-4 focus:ring-gray-400/50 transition-all w-full sm:w-auto disabled:opacity-50">
+        <RefreshCwIcon className={`w-5 h-5 ${isRegenerating ? 'animate-spin' : ''}`} />
+        <span>Regenerate Outline</span>
+      </button>
+      <button onClick={onCreate} className="flex items-center justify-center gap-2 px-6 py-3 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-300/50 transition-all w-full sm:w-auto">
+        <MagicIcon className="w-5 h-5" />
+        <span>Create Presentation</span>
+      </button>
+    </div>
+  </div>
+);
+
 
 const App: React.FC = () => {
   const [topic, setTopic] = useState('');
@@ -24,6 +60,10 @@ const App: React.FC = () => {
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [isSuggesting, setIsSuggesting] = useState(false);
 
+  // New state for multi-step generation
+  const [generationStep, setGenerationStep] = useState<'topic' | 'outline' | 'slides'>('topic');
+  const [outline, setOutline] = useState<string[] | null>(null);
+
   const activeSlideData = slides ? slides[activeSlideIndex] : null;
   const selectedTextElement = useMemo(() => 
     activeSlideData?.textElements.find(el => el.id === selectedElementId),
@@ -37,17 +77,18 @@ const App: React.FC = () => {
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
-    if (isLoading) {
+    if (isLoading && generationStep === 'slides') {
       let i = 0;
       setLoadingMessage(loadingMessages[i]);
       interval = setInterval(() => { i = (i + 1) % loadingMessages.length; setLoadingMessage(loadingMessages[i]); }, 2500);
     }
     return () => clearInterval(interval);
-  }, [isLoading]);
+  }, [isLoading, generationStep]);
 
   const resetState = () => {
     setSlides(null); setBackgroundImage(null); setActiveSlideIndex(0); setError(null); setTopic('');
     setDownloadFilename(''); setSelectedElementId(null); setSuggestion(null);
+    setGenerationStep('topic'); setOutline(null);
   };
 
   const handleStartOver = () => {
@@ -55,17 +96,38 @@ const App: React.FC = () => {
           resetState();
       }
   };
-
-  const handleGenerate = async () => {
+  
+  const handleGenerateOutline = async () => {
     if (!topic.trim()) { setError('Please enter a topic to begin.'); return; }
-    setIsLoading(true); setError(null); setSlides(null); setBackgroundImage(null); setActiveSlideIndex(0);
+    setIsLoading(true); setError(null); setOutline(null);
+    setGenerationStep('outline');
     try {
-      const result = await generatePresentation(topic, theme);
+      const result = await generatePresentationOutline(topic);
+      setOutline(result);
+    } catch (e) {
+      console.error(e);
+      const errorMessage = e instanceof Error ? e.message : 'An unexpected error occurred while generating the outline.';
+      setError(errorMessage);
+      setGenerationStep('topic'); // Revert on error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreatePresentation = async () => {
+    if (!topic.trim() || !outline) { return; }
+    setIsLoading(true); setError(null); setSlides(null); setBackgroundImage(null); setActiveSlideIndex(0);
+    setGenerationStep('slides');
+    try {
+      const result = await generatePresentation(topic, theme, outline);
       setSlides(result.slides);
       setBackgroundImage(result.backgroundImage);
       setDownloadFilename(`${topic.replace(/\s+/g, '_').toLowerCase()}.pptx`);
     } catch (e) {
-      console.error(e); setError(e instanceof Error ? e.message : 'An unexpected error occurred. Please try again.');
+      console.error(e);
+      const errorMessage = e instanceof Error ? e.message : 'An unexpected error occurred. Please try again.';
+      setError(errorMessage);
+      setGenerationStep('outline'); // Revert to outline screen on error
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +137,7 @@ const App: React.FC = () => {
       if (!topic || !slides) return;
       setIsAddingSlide(true); setError(null);
       try {
-          const newSlide = await generateSingleSlide(topic, slides.length, theme);
+          const newSlide = await generateSingleSlide(topic, slides, theme);
           setSlides(currentSlides => [...(currentSlides || []), newSlide]);
           setActiveSlideIndex(slides.length);
       } catch (e) {
@@ -173,16 +235,35 @@ const App: React.FC = () => {
       return (
         <div className="text-center transition-opacity duration-500">
           <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-cyan-400 mx-auto"></div>
-          <p className="text-xl text-slate-300 mt-6 font-medium tracking-wide">{loadingMessage}</p>
+          <p className="text-xl text-slate-300 mt-6 font-medium tracking-wide">
+            {generationStep === 'outline' ? 'Drafting presentation outline...' : loadingMessage}
+          </p>
         </div>
       );
     }
 
     if (error) {
-      return <div className="text-center p-6 bg-red-900/50 border border-red-700 rounded-lg"><p className="text-lg text-red-200">{error}</p></div>
+        return (
+            <div className="text-center p-6 bg-red-900/50 border border-red-700 rounded-lg">
+              <p className="text-lg text-red-200">{error}</p>
+              <button onClick={() => { setError(null); setGenerationStep('topic'); }} className="mt-4 px-4 py-2 bg-red-700 rounded-full hover:bg-red-600 transition">Try Again</button>
+            </div>
+        );
     }
 
-    if (slides && backgroundImage && activeSlideData) {
+    if (generationStep === 'outline' && outline) {
+        return (
+            <OutlineReview 
+                outline={outline}
+                topic={topic}
+                onRegenerate={handleGenerateOutline}
+                onCreate={handleCreatePresentation}
+                isRegenerating={isLoading}
+            />
+        )
+    }
+
+    if (generationStep === 'slides' && slides && backgroundImage && activeSlideData) {
       return (
         <div className="w-full flex flex-col items-center gap-6 animate-fade-in">
           <div className="w-full max-w-5xl">
@@ -271,7 +352,7 @@ const App: React.FC = () => {
         <div className="flex flex-col sm:flex-row items-center gap-4">
           <div className="relative flex-grow w-full">
             <input
-              type="text" value={topic} onChange={(e) => setTopic(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isLoading && !slides && handleGenerate()}
+              type="text" value={topic} onChange={(e) => setTopic(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isLoading && !slides && handleGenerateOutline()}
               placeholder="Enter a presentation topic..." aria-label="Presentation topic input" disabled={isLoading || !!slides}
               className="w-full pl-6 pr-4 sm:pr-40 py-4 text-lg bg-slate-800/50 border border-slate-700 rounded-full focus:ring-2 focus:ring-cyan-400 focus:outline-none transition-all placeholder-slate-500 disabled:opacity-50"
             />
@@ -289,7 +370,7 @@ const App: React.FC = () => {
                      <span>Start Over</span>
                  </button>
             ) : (
-                 <button onClick={handleGenerate} disabled={isLoading} className="flex items-center justify-center gap-2 px-6 py-4 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-300/50 transition-all transform hover:scale-105 disabled:bg-slate-600 disabled:cursor-not-allowed">
+                 <button onClick={handleGenerateOutline} disabled={isLoading} className="flex items-center justify-center gap-2 px-6 py-4 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-300/50 transition-all transform hover:scale-105 disabled:bg-slate-600 disabled:cursor-not-allowed">
                      <MagicIcon className="w-5 h-5"/>
                      <span>Generate</span>
                  </button>

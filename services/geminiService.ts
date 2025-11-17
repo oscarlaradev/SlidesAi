@@ -49,6 +49,38 @@ const generateBackgroundImage = async (prompt: string): Promise<string> => {
     return response.generatedImages[0].image.imageBytes;
 };
 
+export const generatePresentationOutline = async (topic: string): Promise<string[]> => {
+    const prompt = `Create a concise and logical presentation outline for the topic: "${topic}".
+    The outline should consist of key points that will become slide titles.
+    Include an introduction and a conclusion/Q&A point. A good outline has between 4 and 7 points.
+    Provide your response as a JSON object with a single key "outline" which is an array of strings. Do not include markdown.
+    Example: { "outline": ["Introduction to Topic", "Key Area 1", "Key Area 2", "Case Study", "Conclusion & Next Steps"] }`;
+
+    const outlineSchema = {
+        type: Type.OBJECT,
+        properties: {
+            outline: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+            }
+        },
+        required: ['outline']
+    };
+
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: outlineSchema
+        },
+    });
+
+    const jsonText = response.text.trim();
+    const result = JSON.parse(jsonText);
+    return result.outline;
+};
+
 
 const slideLayoutSchema = {
     type: Type.OBJECT,
@@ -87,26 +119,31 @@ const slideLayoutSchema = {
     required: ['slideType', 'textElements'],
 };
 
-const generateSlideLayouts = async (topic: string, theme: ThemeOption): Promise<SlideData[]> => {
+const generateAllSlidesFromOutline = async (topic: string, theme: ThemeOption, outline: string[]): Promise<SlideData[]> => {
     const themeInstruction = themeLayoutPrompts[theme];
-    const prompt = `You are an expert presentation designer. Your task is to generate the layout and content for two presentation slides based on the topic: "${topic}".
+    const prompt = `You are an expert presentation designer. Your task is to generate a full presentation deck based on the topic: "${topic}" and the provided outline.
 
-${themeInstruction}
+**Outline:**
+- ${outline.join('\n- ')}
 
-Provide your response as a single JSON object, which is an array of two slide objects. Do not include markdown.
+**Instructions:**
+1.  The first outline item should be a **Title Slide** for the presentation topic.
+2.  For each subsequent point in the outline, create a corresponding **Content Slide** with a heading and informative body text.
+3.  The last item in the outline should be a **Concluding Slide** (e.g., "Thank You" or "Q&A").
+4.  ${themeInstruction}
 
-1.  **Title Slide**: Should contain a main title and a smaller subtitle.
-2.  **Content Slide**: Should contain a heading and a body of text.
-
-- **Positioning (x, y, w, h)**: These are percentages from 0-100.
+**Output Requirements:**
+- Provide your response as a single JSON object, which is an array of slide objects. Do not include markdown.
+- The number of slides in the array must exactly match the number of points in the outline.
+- Follow the schema for positioning (x, y, w, h as percentages) and styling (tailwindClasses for typography/color only).
 - **CRITICAL LAYOUT RULES**:
     1.  **No Overlapping**: Bounding boxes MUST NOT overlap.
-    2.  **Slide Boundaries**: All elements must be fully contained within the slide. Ensure a safe margin of at least 5% from all edges (e.g. x is between 5 and 95-w).
-    3.  **Sufficient Padding**: Ensure ample empty space.
-- **Styling (tailwindClasses)**: Use this ONLY for typography and color.`;
+    2.  **Slide Boundaries**: All elements must be fully contained within the slide. Ensure a safe margin of at least 5% from all edges.
+    3.  **Sufficient Padding**: Ensure ample empty space for a clean, professional look.
+    4.  **Creative Layouts**: Use a variety of professional and visually appealing layouts across the slides. Do not make every slide look the same.`;
 
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-pro",
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -119,14 +156,29 @@ Provide your response as a single JSON object, which is an array of two slide ob
 
     const jsonText = response.text.trim();
     const slides: SlideData[] = JSON.parse(jsonText);
-    slides.forEach(slide => slide.id = makeId()); // Assign unique ID
+
+    // Override slide types based on position, and assign unique IDs
+    if (slides.length > 0) {
+        slides[0].slideType = 'title';
+        slides.forEach((slide, index) => {
+            slide.id = makeId();
+            if (index > 0) {
+                slide.slideType = 'content';
+            }
+        });
+    }
+
     return slides;
 };
 
-export const generateSingleSlide = async (topic: string, slideCount: number, theme: ThemeOption): Promise<SlideData> => {
+
+export const generateSingleSlide = async (topic: string, slides: SlideData[], theme: ThemeOption): Promise<SlideData> => {
     const themeInstruction = themeLayoutPrompts[theme];
+    const previousSlideContent = slides.length > 0 ? JSON.stringify(slides[slides.length-1].textElements.map(el => el.text)) : 'This is the first slide after the title.';
+
     const prompt = `You are an expert presentation designer. Generate a single new 'content' slide for a presentation on the topic: "${topic}".
-This is slide number ${slideCount + 1}. Ensure its content is a logical continuation.
+This new slide should logically follow the previous slide, which contained the following text: ${previousSlideContent}.
+Create new, relevant content. Don't just repeat information.
 ${themeInstruction}
 Provide your response as a single JSON object for one slide. Do not include markdown.
 Follow the schema for positioning (x, y, w, h as percentages) and styling (tailwindClasses for typography/color only).
@@ -218,16 +270,19 @@ export const refineText = async (text: string, refinementType: RefinementType, t
 };
 
 
-export const generatePresentation = async (topic: string, theme: ThemeOption): Promise<{ slides: SlideData[], backgroundImage: string }> => {
+export const generatePresentation = async (topic: string, theme: ThemeOption, outline: string[]): Promise<{ slides: SlideData[], backgroundImage: string }> => {
     if (!topic) {
         throw new Error("Topic cannot be empty.");
+    }
+    if (!outline || outline.length === 0) {
+        throw new Error("Outline cannot be empty.");
     }
     
     const imagePrompt = await generateImagePrompt(topic, theme);
 
     const [backgroundImage, slides] = await Promise.all([
         generateBackgroundImage(imagePrompt),
-        generateSlideLayouts(topic, theme)
+        generateAllSlidesFromOutline(topic, theme, outline)
     ]);
 
     return { slides, backgroundImage };
