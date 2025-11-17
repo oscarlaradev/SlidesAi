@@ -5,12 +5,10 @@ interface EditableTextProps {
   initialText: string;
   className: string;
   onTextChange: (id: string, newText: string) => void;
-  onSelect: (id: string) => void;
-  isSelected: boolean;
   isEditingEnabled?: boolean;
 }
 
-export const EditableText: React.FC<EditableTextProps> = ({ id, initialText, className, onTextChange, onSelect, isSelected, isEditingEnabled = true }) => {
+export const EditableText: React.FC<EditableTextProps> = ({ id, initialText, className, onTextChange, isEditingEnabled = true }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(initialText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -39,9 +37,8 @@ export const EditableText: React.FC<EditableTextProps> = ({ id, initialText, cla
     setText(initialText);
   }, [initialText]);
   
-  const handleDivClick = () => {
+  const handleDoubleClick = () => {
       if (isEditingEnabled) {
-          onSelect(id);
           setIsEditing(true);
       }
   }
@@ -56,7 +53,7 @@ export const EditableText: React.FC<EditableTextProps> = ({ id, initialText, cla
             autoResize();
         }}
         onBlur={handleBlur}
-        className={`${className} bg-transparent border border-cyan-400 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-300 resize-none overflow-hidden`}
+        className={`${className} w-full h-full bg-transparent border border-cyan-400 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-300 resize-none overflow-hidden`}
         style={{
             padding: 0,
             margin: 0,
@@ -68,11 +65,11 @@ export const EditableText: React.FC<EditableTextProps> = ({ id, initialText, cla
 
   return (
     <div
-      onClick={handleDivClick}
-      className={`${className} ${isEditingEnabled ? 'cursor-pointer' : ''} ${isSelected ? 'ring-2 ring-cyan-400 rounded-sm' : 'hover:outline-dashed hover:outline-1 hover:outline-cyan-400 rounded-sm'}`}
+      onDoubleClick={handleDoubleClick}
+      className={`${className} ${isEditingEnabled ? 'cursor-text' : ''} w-full h-full`}
       style={{ whiteSpace: 'pre-wrap' }}
     >
-      {text || (isEditingEnabled ? 'Click to edit' : '')}
+      {text || ''}
     </div>
   );
 };

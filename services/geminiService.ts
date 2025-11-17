@@ -1,11 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SlideData, TextElement, ImageElement } from '../types';
+import { SlideData, TextElement, ImageElement, ChartElement, IconElement } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
 export type ThemeOption = 'dark' | 'light' | 'vibrant';
 
-const makeId = () => `id_${Math.random().toString(36).substring(2, 11)}`;
+const makeId = (prefix: string = 'id') => `${prefix}_${Math.random().toString(36).substring(2, 11)}`;
 
 const themeImagePrompts: Record<ThemeOption, string> = {
     dark: "abstract, minimalist, and professional, with a dark and elegant aesthetic suitable for a corporate or creative presentation. Think subtle gradients, textures, and perhaps a single, non-distracting focal point. It should evoke a feeling of innovation and clarity.",
@@ -228,18 +228,18 @@ const generateAllSlidesFromOutline = async (topic: string, theme: ThemeOption, o
 
 export const generateSingleSlide = async (topic: string, slides: SlideData[], theme: ThemeOption): Promise<SlideData> => {
     const themeInstruction = themeLayoutPrompts[theme];
-    const previousSlideContent = slides.length > 0 ? JSON.stringify(slides[slides.length-1].textElements.map(el => el.text)) : 'This is the first slide after the title.';
+    const previousSlideContent = slides.length > 0 ? JSON.stringify(slides[slides.length-1].textElements.map(el => el.text)) : 'Esta es la primera diapositiva después del título.';
 
-    const prompt = `You are an expert presentation designer. Generate a single new 'content' slide for a presentation on the topic: "${topic}".
-This new slide should logically follow the previous slide, which contained the following text: ${previousSlideContent}.
-Create new, relevant content. Don't just repeat information.
-Also generate concise speakerNotes for this new slide.
-Optionally, include one relevant photorealistic image if it enhances the content.
+    const prompt = `Eres un diseñador experto de presentaciones. Tu tarea es generar una única diapositiva de 'contenido' nueva en **español** para una presentación sobre el tema: "${topic}".
+Esta nueva diapositiva debe seguir lógicamente a la diapositiva anterior, que contenía el siguiente texto: ${previousSlideContent}.
+Crea contenido nuevo y relevante. No repitas información.
+También genera **speakerNotes** concisas en **español** para esta nueva diapositiva.
+Opcionalmente, incluye una imagen fotorrealista relevante si mejora el contenido.
 ${themeInstruction}
-Provide your response as a single JSON object for one slide. Do not include markdown.
-Follow the schema for positioning (x, y, w, h as percentages) and styling (tailwindClasses for typography/color only).
-- **CRITICAL LAYOUT RULES**: No overlapping, stay within slide boundaries with 5% margin, ensure sufficient padding.
-Create a creative, professional, and uncluttered layout.`;
+Proporciona tu respuesta como un único objeto JSON para una diapositiva. No incluyas markdown.
+Sigue el esquema para el posicionamiento (x, y, w, h como porcentajes) y el estilo (tailwindClasses solo para tipografía/color).
+- **REGLAS CRÍTICAS DE DISEÑO**: Sin superposiciones, mantente dentro de los límites de la diapositiva con un margen del 5%, asegura un relleno suficiente.
+Crea un diseño creativo, profesional y despejado.`;
 
      const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
@@ -283,11 +283,13 @@ Create a creative, professional, and uncluttered layout.`;
 export const regenerateSlideLayout = async (topic: string, existingSlide: SlideData, theme: ThemeOption): Promise<SlideData> => {
     const existingTexts = existingSlide.textElements.map(({ id, text }) => ({ id, text }));
     const existingImages = existingSlide.imageElements?.map(({ id }) => ({ id })) || [];
+    const existingCharts = existingSlide.chartElements?.map(({ id }) => ({ id })) || [];
+    const existingIcons = existingSlide.iconElements?.map(({ id }) => ({ id })) || [];
     const themeInstruction = themeLayoutPrompts[theme];
 
     const prompt = `You are an expert presentation designer. Your task is to **redesign the layout** for a single presentation slide on the topic: "${topic}".
 
-**Do NOT change the provided text content or the images.** You must use the exact text provided and account for the number of images.
+**Do NOT change the provided text content, images, icons, or charts.** You must use the exact text provided and account for the number of all elements.
 Your goal is to generate new, creative, and professional values for position (x, y, w, h) for ALL elements and styling (tailwindClasses) for text elements.
 
 ${themeInstruction}
@@ -295,10 +297,12 @@ ${themeInstruction}
 Here is the content you must place in a new layout:
 - Text Elements: ${JSON.stringify(existingTexts)}
 - Image Placeholders: ${JSON.stringify(existingImages)}
+- Chart Placeholders: ${JSON.stringify(existingCharts)}
+- Icon Placeholders: ${JSON.stringify(existingIcons)}
 
 Provide your response as a single JSON object for one slide, following the schema. Do not include markdown formatting.
-Omit fields like 'speakerNotes', 'imageGenerationPrompt', and 'text', as they should not be changed.
-- **CRITICAL LAYOUT RULES**: No overlapping, stay within slide boundaries with 5% margin, ensure sufficient padding. Create a visually balanced and professional composition.`;
+Omit fields like 'speakerNotes', 'imageGenerationPrompt', 'text', 'svg', 'color', as they should not be changed.
+- **CRITICAL LAYOUT RULES**: No overlapping elements, stay within slide boundaries with 5% margin, ensure sufficient padding. Create a visually balanced and professional composition.`;
 
     const layoutOnlySchema = {
         type: Type.OBJECT,
@@ -321,6 +325,34 @@ Omit fields like 'speakerNotes', 'imageGenerationPrompt', and 'text', as they sh
             },
             imageElements: {
                 type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        x: { type: Type.NUMBER },
+                        y: { type: Type.NUMBER },
+                        w: { type: Type.NUMBER },
+                        h: { type: Type.NUMBER },
+                    },
+                    required: ['id', 'x', 'y', 'w', 'h'],
+                }
+            },
+            chartElements: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        x: { type: Type.NUMBER },
+                        y: { type: Type.NUMBER },
+                        w: { type: Type.NUMBER },
+                        h: { type: Type.NUMBER },
+                    },
+                    required: ['id', 'x', 'y', 'w', 'h'],
+                }
+            },
+            iconElements: {
+                 type: Type.ARRAY,
                 items: {
                     type: Type.OBJECT,
                     properties: {
@@ -369,6 +401,20 @@ Omit fields like 'speakerNotes', 'imageGenerationPrompt', and 'text', as they sh
                 base64: originalImgEl?.base64 || '', // Ensure original image data is kept
             };
         }) || existingSlide.imageElements,
+        chartElements: newLayoutData.chartElements?.map((newChartEl: any) => {
+            const originalChartEl = existingSlide.chartElements?.find(e => e.id === newChartEl.id);
+            return {
+                ...(originalChartEl as ChartElement),
+                ...newChartEl,
+            };
+        }) || existingSlide.chartElements,
+        iconElements: newLayoutData.iconElements?.map((newIconEl: any) => {
+            const originalIconEl = existingSlide.iconElements?.find(e => e.id === newIconEl.id);
+            return {
+                ...(originalIconEl as IconElement),
+                ...newIconEl,
+            };
+        }) || existingSlide.iconElements,
     };
 
     return regeneratedSlide;
@@ -398,6 +444,65 @@ export const refineText = async (text: string, refinementType: RefinementType, t
     return response.text.trim();
 };
 
+const chartDataSchema = {
+    type: Type.OBJECT,
+    properties: {
+        chartType: { 
+            type: Type.STRING,
+            description: "The best chart type ('bar', 'line', or 'pie'). If no data is found, this should be 'none'.",
+        },
+        data: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    label: { type: Type.STRING },
+                    value: { type: Type.NUMBER }
+                },
+                required: ['label', 'value']
+            }
+        }
+    },
+    required: ['chartType', 'data']
+};
+
+
+export const generateChartFromText = async (text: string, topic: string): Promise<Omit<ChartElement, 'id' | 'x' | 'y' | 'w' | 'h'> | null> => {
+    const prompt = `Analyze the following text from a presentation about "${topic}".
+Text: "${text}"
+
+Your task is to determine if this text contains quantifiable data suitable for a chart (bar, line, or pie).
+- If it does, extract the data points (labels and their corresponding numeric values).
+- Choose the best chart type to represent this data.
+- The data should have at least two points.
+- If the text does not contain clear, chartable data with at least two points, set chartType to 'none'.
+
+Return a JSON object following the specified schema.`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: chartDataSchema
+        },
+    });
+
+    const jsonText = response.text.trim();
+    const result = JSON.parse(jsonText);
+
+    if (result.chartType === 'none' || !result.data || result.data.length < 2) {
+        return null;
+    }
+
+    return {
+        chartType: result.chartType,
+        data: result.data,
+        options: {
+            colors: ['#22d3ee', '#67e8f9', '#a5f3fc', '#cffafe'] // Default cyan theme
+        }
+    };
+};
 
 export const generatePresentation = async (topic: string, theme: ThemeOption, outline: string[]): Promise<{ slides: SlideData[], backgroundImage: string }> => {
     if (!topic) {
@@ -415,4 +520,58 @@ export const generatePresentation = async (topic: string, theme: ThemeOption, ou
     ]);
 
     return { slides, backgroundImage };
+};
+
+export const generateTextElement = async (prompt: string, topic: string, theme: ThemeOption): Promise<Omit<TextElement, 'id' | 'x' | 'y' | 'w' | 'h'>> => {
+    const themeInstruction = themeLayoutPrompts[theme];
+    const genPrompt = `For a presentation on "${topic}", generate a short piece of text (a heading or a few sentences) about: "${prompt}".
+    ${themeInstruction}
+    Provide your response as a JSON object with two keys: "text" and "tailwindClasses".
+    For "tailwindClasses", suggest appropriate typography and color classes, e.g., "text-2xl font-bold text-white".`;
+    
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            text: { type: Type.STRING },
+            tailwindClasses: { type: Type.STRING }
+        },
+        required: ['text', 'tailwindClasses']
+    }
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: genPrompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: schema
+        }
+    });
+
+    return JSON.parse(response.text.trim());
+};
+
+export const generateImageElement = async (prompt: string): Promise<Omit<ImageElement, 'id' | 'x' | 'y' | 'w' | 'h'>> => {
+    const detailedPrompt = `A photorealistic, professional image for a presentation slide about: ${prompt}. Cinematic lighting, high detail.`
+    const base64 = await generateContentImage(detailedPrompt);
+    return { base64 };
+};
+
+
+export const generateIconElement = async (prompt: string): Promise<Omit<IconElement, 'id'|'x'|'y'|'w'|'h'|'color'>> => {
+    const genPrompt = `Generate a single, clean, modern, single-color, line-art style SVG icon representing the concept: "${prompt}".
+    - The SVG MUST use \`currentColor\` for its stroke or fill to allow styling via CSS.
+    - It must have a viewBox="0 0 24 24".
+    - Do NOT include any XML declaration or comments.
+    - Output ONLY the raw <svg>...</svg> string. Do not wrap it in JSON or markdown.
+
+    Example for "email": <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`;
+    
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: genPrompt
+    });
+
+    const svgText = response.text.trim().replace(/<\?xml.*?\?>/g, ''); // Sanitize just in case
+
+    return { svg: svgText };
 };

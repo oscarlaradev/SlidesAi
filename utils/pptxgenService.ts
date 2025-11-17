@@ -83,6 +83,8 @@ export const createPptx = async (slidesData: SlideData[], backgroundImage: strin
         pptx.author = 'AI Presentation Designer';
         pptx.title = topic;
 
+        let hasIcons = false;
+
         for (const slideData of slidesData) {
             const slide = pptx.addSlide();
 
@@ -114,6 +116,10 @@ export const createPptx = async (slidesData: SlideData[], backgroundImage: strin
                 }
             }
 
+            if (slideData.iconElements && slideData.iconElements.length > 0) {
+                hasIcons = true;
+            }
+
             // Add text elements
             for (const element of slideData.textElements) {
                 const styling = parseStyling(element.tailwindClasses);
@@ -126,11 +132,55 @@ export const createPptx = async (slidesData: SlideData[], backgroundImage: strin
                     ...styling,
                 });
             }
+            
+            // Add chart elements
+            if (slideData.chartElements) {
+                for (const element of slideData.chartElements) {
+                    const chartTypeMap = {
+                        bar: PptxGenJS.charts.BAR,
+                        line: PptxGenJS.charts.LINE,
+                        pie: PptxGenJS.charts.PIE,
+                    };
+                    const chartType = chartTypeMap[element.chartType];
+                    
+                    if (chartType) {
+                        const chartData = element.data.map(item => ({
+                            name: 'Series 1', // A single series for simplicity
+                            labels: element.data.map(d => d.label), // All labels
+                            values: element.data.map(d => d.value) // All values
+                        }));
+                        
+                        // We only need one entry for the series
+                        const singleSeriesChartData = chartData.length > 0 ? [chartData[0]] : [];
+                        
+                        slide.addChart({
+                            type: chartType,
+                            data: singleSeriesChartData,
+                            x: `${element.x}%`,
+                            y: `${element.y}%`,
+                            w: `${element.w}%`,
+                            h: `${element.h}%`,
+                            // Chart styling options to match the theme
+                            chartColors: (element.options?.colors || ['22d3ee']).map(c => c.replace('#', '')),
+                            dataLabelColor: 'FFFFFF',
+                            catAxisLabelColor: 'F1F5F9',
+                            valAxisLabelColor: 'F1F5F9',
+                            valGridLine: { color: 'F1F5F9', style: 'dash', size: 1 },
+                            showLegend: false,
+                            showTitle: false,
+                        });
+                    }
+                }
+            }
 
             // Add speaker notes if they exist
             if (slideData.speakerNotes) {
                 slide.addNotes(slideData.speakerNotes);
             }
+        }
+
+        if (hasIcons) {
+            console.warn("PPTX Export Warning: Custom SVG icons are not supported by the export library and will not be included in the downloaded file.");
         }
 
         const blob = await pptx.write('blob');
